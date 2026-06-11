@@ -1,0 +1,6 @@
+{
+  "name": "Job Post Portal & ATS",
+  "description": "Internal job post portal and applicant tracking system featuring role-based access, CV uploads, application status logs, and robust reporting export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
