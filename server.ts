@@ -5,15 +5,38 @@ import { createServer as createViteServer } from "vite";
 import { Job, JobApplication, StatusLog, Category, CompanyGroup } from "./src/types";
 
 // Ensure data folder exists
-const DATA_DIR = path.join(process.cwd(), "data");
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+const DATA_DIR = process.env.VERCEL
+  ? "/tmp/data"
+  : path.join(process.cwd(), "data");
+
+try {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+} catch (e) {
+  console.warn("Failed to create data directory", e);
 }
 
 const JOBS_FILE = path.join(DATA_DIR, "jobs.json");
 const APPLICATIONS_FILE = path.join(DATA_DIR, "applications.json");
 const CATEGORIES_FILE = path.join(DATA_DIR, "categories.json");
 const GROUPS_FILE = path.join(DATA_DIR, "groups.json");
+
+function ensureSeedFile(filePath: string, seedFileName: string, initialData: any) {
+  try {
+    if (!fs.existsSync(filePath)) {
+      const originalPath = path.join(process.cwd(), "data", seedFileName);
+      if (fs.existsSync(originalPath)) {
+        const originalData = fs.readFileSync(originalPath, "utf-8");
+        fs.writeFileSync(filePath, originalData);
+      } else {
+        fs.writeFileSync(filePath, JSON.stringify(initialData, null, 2));
+      }
+    }
+  } catch (err) {
+    console.error(`Seed copy warning for ${seedFileName}:`, err);
+  }
+}
 
 const initialCategories: Category[] = [
   { id: "cat-1", name: "Engineering" },
@@ -247,15 +270,20 @@ const initialApplications: JobApplication[] = [
 // Read from database helper
 function loadJobs(): Job[] {
   try {
+    ensureSeedFile(JOBS_FILE, "jobs.json", initialJobs);
     if (fs.existsSync(JOBS_FILE)) {
       const data = fs.readFileSync(JOBS_FILE, "utf-8");
       return JSON.parse(data);
-    } else {
-      fs.writeFileSync(JOBS_FILE, JSON.stringify(initialJobs, null, 2));
-      return initialJobs;
     }
+    return initialJobs;
   } catch (error) {
     console.error("Error reading jobs file: ", error);
+    try {
+      const originalPath = path.join(process.cwd(), "data", "jobs.json");
+      if (fs.existsSync(originalPath)) {
+        return JSON.parse(fs.readFileSync(originalPath, "utf-8"));
+      }
+    } catch {}
     return initialJobs;
   }
 }
@@ -270,15 +298,20 @@ function saveJobs(jobs: Job[]) {
 
 function loadApplications(): JobApplication[] {
   try {
+    ensureSeedFile(APPLICATIONS_FILE, "applications.json", initialApplications);
     if (fs.existsSync(APPLICATIONS_FILE)) {
       const data = fs.readFileSync(APPLICATIONS_FILE, "utf-8");
       return JSON.parse(data);
-    } else {
-      fs.writeFileSync(APPLICATIONS_FILE, JSON.stringify(initialApplications, null, 2));
-      return initialApplications;
     }
+    return initialApplications;
   } catch (error) {
     console.error("Error reading applications: ", error);
+    try {
+      const originalPath = path.join(process.cwd(), "data", "applications.json");
+      if (fs.existsSync(originalPath)) {
+        return JSON.parse(fs.readFileSync(originalPath, "utf-8"));
+      }
+    } catch {}
     return initialApplications;
   }
 }
@@ -293,15 +326,20 @@ function saveApplications(applications: JobApplication[]) {
 
 function loadCategories(): Category[] {
   try {
+    ensureSeedFile(CATEGORIES_FILE, "categories.json", initialCategories);
     if (fs.existsSync(CATEGORIES_FILE)) {
       const data = fs.readFileSync(CATEGORIES_FILE, "utf-8");
       return JSON.parse(data);
-    } else {
-      fs.writeFileSync(CATEGORIES_FILE, JSON.stringify(initialCategories, null, 2));
-      return initialCategories;
     }
+    return initialCategories;
   } catch (error) {
     console.error("Error reading categories file: ", error);
+    try {
+      const originalPath = path.join(process.cwd(), "data", "categories.json");
+      if (fs.existsSync(originalPath)) {
+        return JSON.parse(fs.readFileSync(originalPath, "utf-8"));
+      }
+    } catch {}
     return initialCategories;
   }
 }
@@ -316,15 +354,20 @@ function saveCategories(categories: Category[]) {
 
 function loadGroups(): CompanyGroup[] {
   try {
+    ensureSeedFile(GROUPS_FILE, "groups.json", initialGroups);
     if (fs.existsSync(GROUPS_FILE)) {
       const data = fs.readFileSync(GROUPS_FILE, "utf-8");
       return JSON.parse(data);
-    } else {
-      fs.writeFileSync(GROUPS_FILE, JSON.stringify(initialGroups, null, 2));
-      return initialGroups;
     }
+    return initialGroups;
   } catch (error) {
     console.error("Error reading groups file: ", error);
+    try {
+      const originalPath = path.join(process.cwd(), "data", "groups.json");
+      if (fs.existsSync(originalPath)) {
+        return JSON.parse(fs.readFileSync(originalPath, "utf-8"));
+      }
+    } catch {}
     return initialGroups;
   }
 }
@@ -338,14 +381,13 @@ function saveGroups(groups: CompanyGroup[]) {
 }
 
 // In-memory sessions store for Admin (Simple secure session tokens)
-const ADMIN_EMAIL = "mk.rabbani.cse@gmail.com";
-const ADMIN_PASSCODE = "portal-admin-123"; // Simple secure passcode for authentication
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "mk.rabbani.cse@gmail.com";
+const ADMIN_PASSCODE = process.env.ADMIN_PASSCODE || "portal-admin-123"; // Simple secure passcode for authentication
 const activeSessions = new Set<string>();
 
-async function startServer() {
-  const app = express();
-  app.use(express.json({ limit: "50mb" })); // Support large base64 uploads (CV documents)
-  app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+export const app = express();
+app.use(express.json({ limit: "50mb" })); // Support large base64 uploads (CV documents)
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
   // API Middleware for auth check
   const checkAdminAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -741,26 +783,29 @@ async function startServer() {
     res.json(currentApp);
   });
 
-  // ---------------- VITE MIDDLEWARE / STATIC FILES ----------------
+  // ---------------- VITE MIDDLEWARE / STATIC FILES / PORT LISTENING ----------------
+  if (!process.env.VERCEL) {
+    const boot = async () => {
+      if (process.env.NODE_ENV !== "production") {
+        const vite = await createViteServer({
+          server: { middlewareMode: true },
+          appType: "spa",
+        });
+        app.use(vite.middlewares);
+      } else {
+        const distPath = path.join(process.cwd(), "dist");
+        app.use(express.static(distPath));
+        app.get("*", (req, res) => {
+          res.sendFile(path.join(distPath, "index.html"));
+        });
+      }
 
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
+      const PORT = 3000;
+      app.listen(PORT, "0.0.0.0", () => {
+        console.log(`Job Portal Full-Stack Engine online at http://0.0.0.0:${PORT}`);
+      });
+    };
+    boot();
   }
 
-  const PORT = 3000;
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Job Portal Full-Stack Engine online at http://0.0.0.0:${PORT}`);
-  });
-}
-
-startServer();
+export default app;
